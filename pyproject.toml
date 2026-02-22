@@ -1,0 +1,21 @@
+[project]
+name = "trabajo-final-agente-llm"
+version = "0.1.0"
+description = "LangGraph Travel Recommendation Agent - Generates comparative PDF reports with flight alternatives"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=1.2.10",
+    "langchain-anthropic>=1.3.3",
+    "langchain-openai>=1.1.9",
+    "langgraph>=1.0.8",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic-settings>=2.7.0",
+    "reportlab>=4.2.0",
+    "amadeus>=9.0.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.0.0",
+    "nest-asyncio>=1.6.0",
+    "grandalf>=0.8",
+]
