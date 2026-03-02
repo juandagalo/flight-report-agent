@@ -19,7 +19,7 @@ KNOWN_IATA = {
 }
 
 
-def validate_input(state: TravelState) -> TravelState:
+async def validate_input(state: TravelState) -> dict:
     """Validate and normalise the request data."""
 
     logger.info("→ Starting VALIDATE node")
@@ -27,13 +27,10 @@ def validate_input(state: TravelState) -> TravelState:
     errors: list[str] = []
     request = state.get("request")
     if request is None:
-        return {**state, "validated": False, "validation_errors": ["No request found in state"], "errors": ["No request found in state"]}
+        return {"validated": False, "validation_errors": ["No request found in state"], "errors": ["No request found in state"]}
 
     # Origin IATA
     origin = request.origin.upper().strip()
-    if len(origin) != 3:
-        errors.append(f"El código IATA de origen '{origin}' debe tener 3 caracteres.")
-        
     if origin not in KNOWN_IATA:
         logger.warning("IATA code '%s' not in known list – accepting anyway", origin)
 
@@ -44,21 +41,11 @@ def validate_input(state: TravelState) -> TravelState:
                 f"La fecha de regreso ({dr.date_to}) debe ser posterior a la de salida ({dr.date_from})."
             )
 
-    # Budget
-    if request.max_budget <= 0:
-        errors.append("El presupuesto debe ser mayor a 0.")
-
-    # People
-    if request.num_people < 1 or request.num_people > 9:
-        errors.append("El número de viajeros debe estar entre 1 y 9.")
-
     if errors:
         logger.warning("Validation errors: %s", errors)
 
     return {
-        **state,
         "validated": len(errors) == 0,
         "validation_errors": errors,
-        "errors": state.get("errors", []) + errors,
-        "suggest_retry_count": state.get("suggest_retry_count", 0),
+        "errors": errors,
     }

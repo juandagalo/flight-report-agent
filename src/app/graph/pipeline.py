@@ -7,6 +7,7 @@ import logging
 from langgraph.graph import END, StateGraph
 
 from src.app.graph.nodes.enrich import enrich_data
+from src.app.graph.nodes.intake import intake_node
 from src.app.graph.nodes.report import generate_report_node
 from src.app.graph.nodes.search_flights import search_flights_node
 from src.app.graph.nodes.suggest import suggest_destinations
@@ -20,7 +21,7 @@ MAX_SUGGEST_RETRIES = 1
 
 def _should_retry_suggest(state: TravelState) -> str:
     """Decide whether to retry destination suggestion or proceed."""
-    
+
     reports = state.get("destination_reports", [])
     retry_count = state.get("suggest_retry_count", 0)
 
@@ -29,13 +30,13 @@ def _should_retry_suggest(state: TravelState) -> str:
         return "retry_suggest"
     return "continue"
 
-def _increment_retry(state: TravelState) -> TravelState:
+
+async def _increment_retry(state: TravelState) -> dict:
     """Bump the retry counter before re-suggesting."""
 
     logger.info("→ Starting INCREMENT_RETRY node")
-    
+
     return {
-        **state,
         "suggest_retry_count": state.get("suggest_retry_count", 0) + 1,
     }
 
@@ -49,13 +50,14 @@ def _validation_router(state: TravelState) -> str:
 
 def build_graph():
     """Construct and compile the travel recommendation graph.
-    
+
     Returns:
         Compiled LangGraph ready to invoke with TravelState.
     """
     graph = StateGraph(TravelState)
 
     # ── Add nodes ────────────────────────────────────────────────────
+    graph.add_node("intake", intake_node)
     graph.add_node("validate", validate_input)
     graph.add_node("suggest", suggest_destinations)
     graph.add_node("search_flights", search_flights_node)
@@ -64,7 +66,9 @@ def build_graph():
     graph.add_node("generate_report", generate_report_node)
 
     # ── Set entry point ──────────────────────────────────────────────
-    graph.set_entry_point("validate")
+    graph.set_entry_point("intake")
+
+    graph.add_edge("intake", "validate")
 
     # ── Edges ────────────────────────────────────────────────────────
     graph.add_conditional_edges(

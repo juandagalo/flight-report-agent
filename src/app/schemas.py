@@ -55,6 +55,15 @@ class TravelRequest(BaseModel):
     num_people: int = Field(..., ge=1, le=9, description="Número de viajeros")
 
 
+class IntakeResult(TravelRequest):
+    """Structured output from the intake agent — extends TravelRequest with assumptions."""
+
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Suposiciones hechas al interpretar el mensaje del usuario",
+    )
+
+
 # ----- Intermediate / internal models -----
 
 
