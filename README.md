@@ -52,7 +52,7 @@ AMADEUS_ENV=test  # "test" or "production"
 uv run pytest -v
 ```
 
-87 tests covering schemas, all graph nodes, services, pipeline logic, and API endpoints. All external I/O is mocked.
+96 tests covering schemas, all graph nodes, services, pipeline logic, and API endpoints. All external I/O is mocked.
 
 ## Running
 
@@ -68,6 +68,8 @@ API available at `http://localhost:8000`. Interactive docs at `/docs`.
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
 | `POST` | `/api/chat` | Natural-language travel request, returns PDF |
+| `POST` | `/api/chat/stream` | SSE streaming version — emits node-by-node progress events |
+| `GET` | `/api/reports/{filename}` | Download a generated PDF report |
 | `GET` | `/api/graph/ascii` | ASCII diagram of the LangGraph pipeline |
 | `GET` | `/api/graph/viewer` | Interactive Mermaid graph viewer |
 
@@ -81,3 +83,37 @@ curl -X POST http://localhost:8000/api/chat \
 ```
 
 On success the response is the PDF file directly (`application/pdf`).
+
+### SSE Streaming
+
+For real-time progress updates, use the streaming endpoint:
+
+```bash
+curl -N -X POST http://localhost:8000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Quiero ir a la playa desde Bogotá en julio, presupuesto 1500 USD para 2 personas"}'
+```
+
+Sample events:
+
+```
+event: node_start
+data: {"node": "intake", "message": "Interpretando tu solicitud..."}
+
+event: node_end
+data: {"node": "intake", "message": "Solicitud interpretada"}
+
+event: node_start
+data: {"node": "validate", "message": "Validando datos de viaje..."}
+
+...
+
+event: complete
+data: {"report_url": "/api/reports/report_abc123.pdf", "message": "Informe PDF listo para descargar"}
+```
+
+Then download the PDF:
+
+```bash
+curl http://localhost:8000/api/reports/report_abc123.pdf --output informe.pdf
+```

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, HTMLResponse
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from src.app.config import settings
 from src.app.graph.pipeline import travel_graph
@@ -23,6 +26,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MAX_REPORT_AGE_SECONDS = 3600  # 1 hour
+
+# ── Node-level progress messages (Spanish) ───────────────────────────
+
+_NODE_MESSAGES: dict[str, tuple[str, str]] = {
+    # node_name: (start_message, end_message)
+    "intake":          ("Interpretando tu solicitud...",            "Solicitud interpretada"),
+    "validate":        ("Validando datos de viaje...",             "Datos validados"),
+    "suggest":         ("Sugiriendo destinos...",                  "Destinos sugeridos"),
+    "search_flights":  ("Buscando vuelos en Amadeus...",           "Búsqueda de vuelos completada"),
+    "increment_retry": ("Reintentando con nuevos destinos...",     "Reintento preparado"),
+    "enrich":          ("Enriqueciendo con clima y actividades...", "Datos enriquecidos"),
+    "generate_report": ("Generando informe PDF...",                "Informe PDF generado"),
+}
 
 
 def _cleanup_old_reports() -> int:
@@ -127,6 +143,21 @@ async def get_graph_viewer():
         raise HTTPException(status_code=500, detail=f"Error generating viewer: {exc}")
 
 
+def _build_initial_state(message: str) -> dict:
+    """Build the initial TravelState dict from a user message."""
+    return {
+        "user_message": message,
+        "validated": False,
+        "validation_errors": [],
+        "candidate_destinations": [],
+        "destination_reports": [],
+        "enriched": False,
+        "report_path": "",
+        "suggest_retry_count": 0,
+        "errors": [],
+    }
+
+
 async def _create_travel_report(initial_state: dict):
     """Run the full LangGraph pipeline and return the PDF report (internal).
 
@@ -183,17 +214,122 @@ async def chat(body: ChatMessage):
     Example: ``{"message": "Quiero ir a la playa desde Bogotá en julio, presupuesto 1500 USD"}``
     """
     logger.info("New chat request: %s", body.message[:120])
+    return await _create_travel_report(_build_initial_state(body.message))
 
-    initial_state = {
-        "user_message": body.message,
-        "validated": False,
-        "validation_errors": [],
-        "candidate_destinations": [],
-        "destination_reports": [],
-        "enriched": False,
-        "report_path": "",
-        "suggest_retry_count": 0,
-        "errors": [],
-    }
 
-    return await _create_travel_report(initial_state)
+# ── SSE streaming endpoint ───────────────────────────────────────────
+
+
+def _sse_event(event: str, data: dict) -> dict:
+    """Build a dict suitable for sse-starlette's EventSourceResponse."""
+    return {"event": event, "data": json.dumps(data)}
+
+
+async def _stream_travel_pipeline(
+    initial_state: dict,
+) -> AsyncGenerator[dict, None]:
+    """Yield SSE events as the LangGraph pipeline progresses.
+
+    Uses ``astream_events`` so that ``node_start`` is emitted *when a node
+    begins* (not after it finishes), giving the client real-time progress.
+    """
+    try:
+        async for event in travel_graph.astream_events(
+            initial_state, version="v2"
+        ):
+            kind = event["event"]
+            name = event.get("name", "")
+            metadata = event.get("metadata", {})
+            langgraph_node = metadata.get("langgraph_node", "")
+
+            # Only handle top-level node events for known pipeline nodes
+            if not langgraph_node or langgraph_node not in _NODE_MESSAGES:
+                continue
+            if name != langgraph_node:
+                continue
+
+            start_msg, end_msg = _NODE_MESSAGES[langgraph_node]
+
+            if kind == "on_chain_start":
+                yield _sse_event(
+                    "node_start", {"node": langgraph_node, "message": start_msg}
+                )
+
+            elif kind == "on_chain_end":
+                delta = event.get("data", {}).get("output", {})
+                yield _sse_event(
+                    "node_end", {"node": langgraph_node, "message": end_msg}
+                )
+
+                # Validation failure → emit error and stop
+                if langgraph_node == "validate" and not delta.get("validated", False):
+                    yield _sse_event(
+                        "error",
+                        {
+                            "message": "Errores de validación",
+                            "errors": delta.get("validation_errors", []),
+                        },
+                    )
+                    return
+
+                # Report generated → emit complete or error
+                if langgraph_node == "generate_report":
+                    report_path = delta.get("report_path", "")
+                    if report_path and os.path.isfile(report_path):
+                        filename = os.path.basename(report_path)
+                        yield _sse_event(
+                            "complete",
+                            {
+                                "report_url": f"/api/reports/{filename}",
+                                "message": "Informe PDF listo para descargar",
+                            },
+                        )
+                    else:
+                        yield _sse_event(
+                            "error",
+                            {"message": "No se pudo generar el informe"},
+                        )
+                    return
+
+    except Exception as exc:
+        logger.exception("Streaming pipeline failed")
+        yield _sse_event("error", {"message": f"Error en el pipeline: {exc}"})
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(body: ChatMessage):
+    """SSE streaming version of the chat endpoint.
+
+    Emits node_start / node_end events as each pipeline step completes,
+    then a final ``complete`` event with the report download URL.
+    """
+    logger.info("New streaming request: %s", body.message[:120])
+    initial_state = _build_initial_state(body.message)
+    return EventSourceResponse(_stream_travel_pipeline(initial_state))
+
+
+# ── Report download endpoint ─────────────────────────────────────────
+
+
+@app.get("/api/reports/{filename}")
+async def download_report(filename: str):
+    """Serve a generated PDF report by filename.
+
+    Used by streaming clients to download the PDF after receiving the
+    ``complete`` SSE event with a ``report_url``.
+    """
+    # Security: reject path traversal and non-PDF files
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se permiten archivos PDF")
+
+    path = os.path.join(settings.REPORT_OUTPUT_DIR, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Informe no encontrado")
+
+    return FileResponse(
+        path=path,
+        media_type="application/pdf",
+        filename=filename,
+    )
