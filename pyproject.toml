@@ -17,6 +17,7 @@ dependencies = [
     "httpx>=0.28.0",
     "python-dotenv>=1.0.0",
     "grandalf>=0.8",
+    "sse-starlette>=2.1.0",
 ]
 
 [dependency-groups]
