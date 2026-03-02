@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+import operator
+from typing import Annotated, TypedDict
 
 from src.app.schemas import (
     CandidateDestination,
@@ -14,8 +15,14 @@ from src.app.schemas import (
 class TravelState(TypedDict, total=False):
     """State that flows through every node in the graph."""
 
-    # Input
+    # Input (natural language)
+    user_message: str
+
+    # Input (structured)
     request: TravelRequest
+
+    # After intake
+    intake_assumptions: list[str]
 
     # After validation
     validated: bool
@@ -36,5 +43,5 @@ class TravelState(TypedDict, total=False):
     # Retry tracking
     suggest_retry_count: int
 
-    # General errors
-    errors: list[str]
+    # General errors (auto-appended via reducer)
+    errors: Annotated[list[str], operator.add]

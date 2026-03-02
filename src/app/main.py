@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, HTMLResponse
+from pydantic import BaseModel
 
 from src.app.config import settings
 from src.app.graph.pipeline import travel_graph
-from src.app.schemas import TravelRequest
 from src.app.templates import get_graph_viewer_html
 
 logging.basicConfig(
@@ -19,14 +22,79 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+MAX_REPORT_AGE_SECONDS = 3600  # 1 hour
+
+
+def _cleanup_old_reports() -> int:
+    """Remove PDF reports older than MAX_REPORT_AGE_SECONDS. Returns count removed."""
+    report_dir = settings.REPORT_OUTPUT_DIR
+    if not os.path.isdir(report_dir):
+        return 0
+
+    now = time.time()
+    removed = 0
+    for name in os.listdir(report_dir):
+        if not name.endswith(".pdf"):
+            continue
+        path = os.path.join(report_dir, name)
+        try:
+            if now - os.path.getmtime(path) > MAX_REPORT_AGE_SECONDS:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup/shutdown lifecycle: clean up stale PDF reports."""
+    removed = _cleanup_old_reports()
+    if removed:
+        logger.info("Startup cleanup: removed %d stale report(s)", removed)
+    yield
+    removed = _cleanup_old_reports()
+    if removed:
+        logger.info("Shutdown cleanup: removed %d stale report(s)", removed)
+
+
 app = FastAPI(
     title="Travel Recommendation Agent",
     description=(
         "Agente LangGraph que genera un informe comparativo de viaje en PDF "
         "basado en las preferencias del usuario y datos reales de vuelos (Amadeus)."
     ),
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
 )
+
+# ── CORS ─────────────────────────────────────────────────────────────
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Global exception handler ─────────────────────────────────────────
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Return a consistent JSON error for unhandled exceptions."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Error interno del servidor",
+            "error": str(exc),
+        },
+    )
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────
 
 
 @app.get("/health")
@@ -37,10 +105,7 @@ async def health():
 
 @app.get("/api/graph/ascii", response_class=PlainTextResponse)
 async def get_graph_ascii():
-    """Get the LangGraph pipeline as an ASCII diagram.
-    
-    Returns a simple text representation of the graph structure.
-    """
+    """Get the LangGraph pipeline as an ASCII diagram."""
     try:
         graph = travel_graph.get_graph()
         ascii_diagram = graph.draw_ascii()
@@ -52,10 +117,7 @@ async def get_graph_ascii():
 
 @app.get("/api/graph/viewer", response_class=HTMLResponse)
 async def get_graph_viewer():
-    """Interactive Mermaid diagram viewer.
-    
-    Returns an HTML page with the rendered graph visualization.
-    """
+    """Interactive Mermaid diagram viewer."""
     try:
         graph = travel_graph.get_graph()
         mermaid_diagram = graph.draw_mermaid()
@@ -65,29 +127,14 @@ async def get_graph_viewer():
         raise HTTPException(status_code=500, detail=f"Error generating viewer: {exc}")
 
 
-@app.post("/api/travel-report")
-async def create_travel_report(request: TravelRequest):
-    """Run the full LangGraph pipeline and return the PDF report.
+async def _create_travel_report(initial_state: dict):
+    """Run the full LangGraph pipeline and return the PDF report (internal).
 
-    The pipeline: validate → suggest destinations → search flights →
+    The pipeline: intake → validate → suggest destinations → search flights →
     enrich (weather + activities) → generate PDF.
     """
-    logger.info("New travel report request: origin=%s, region=%s", request.origin, request.region)
-
-    initial_state = {
-        "request": request,
-        "validated": False,
-        "validation_errors": [],
-        "candidate_destinations": [],
-        "destination_reports": [],
-        "enriched": False,
-        "report_path": "",
-        "suggest_retry_count": 0,
-        "errors": [],
-    }
-
     try:
-        result = travel_graph.invoke(initial_state)
+        result = await travel_graph.ainvoke(initial_state)
     except Exception as exc:
         logger.exception("Pipeline failed")
         raise HTTPException(status_code=500, detail=f"Error en el pipeline: {exc}")
@@ -119,3 +166,34 @@ async def create_travel_report(request: TravelRequest):
         media_type="application/pdf",
         filename=os.path.basename(report_path),
     )
+
+
+# ── Chat endpoint (natural language) ─────────────────────────────────
+
+
+class ChatMessage(BaseModel):
+    """Request body for the chat endpoint."""
+    message: str
+
+
+@app.post("/api/chat")
+async def chat(body: ChatMessage):
+    """Accept a natural-language travel request, run the pipeline, and return the PDF.
+
+    Example: ``{"message": "Quiero ir a la playa desde Bogotá en julio, presupuesto 1500 USD"}``
+    """
+    logger.info("New chat request: %s", body.message[:120])
+
+    initial_state = {
+        "user_message": body.message,
+        "validated": False,
+        "validation_errors": [],
+        "candidate_destinations": [],
+        "destination_reports": [],
+        "enriched": False,
+        "report_path": "",
+        "suggest_retry_count": 0,
+        "errors": [],
+    }
+
+    return await _create_travel_report(initial_state)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from langchain_openai import ChatOpenAI
@@ -28,15 +27,15 @@ class DestinationList(BaseModel):
     )
 
 
-def suggest_destinations(state: TravelState) -> TravelState:
+async def suggest_destinations(state: TravelState) -> dict:
     """Call the LLM to suggest 5-8 destinations matching user preferences."""
 
     logger.info("→ Starting SUGGEST node")
 
     request = state.get("request")
     if request is None:
-        return {**state, "errors": state.get("errors", []) + ["No request found in state"]}
-    
+        return {"errors": ["No request found in state"]}
+
     retry_count = state.get("suggest_retry_count", 0)
 
     dates_str = ", ".join(
@@ -77,7 +76,7 @@ def suggest_destinations(state: TravelState) -> TravelState:
         )
 
     try:
-        result: DestinationList = structured_llm.invoke([
+        result: DestinationList = await structured_llm.ainvoke([
             {"role": "system", "content": SUGGEST_DESTINATIONS_SYSTEM},
             {"role": "user", "content": user_msg},
         ])
@@ -90,13 +89,11 @@ def suggest_destinations(state: TravelState) -> TravelState:
             [d.iata_code for d in destinations],
         )
         return {
-            **state,
             "candidate_destinations": destinations,
         }
     except Exception as exc:
         logger.error("LLM suggestion failed: %s", exc)
         return {
-            **state,
             "candidate_destinations": [],
-            "errors": state.get("errors", []) + [f"Error al sugerir destinos: {exc}"],
+            "errors": [f"Error al sugerir destinos: {exc}"],
         }

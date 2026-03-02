@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import time
 from typing import Any
 
 from amadeus import Client, ResponseError
@@ -12,9 +14,13 @@ from src.app.schemas import FlightOffer
 
 logger = logging.getLogger(__name__)
 
+MAX_RETRIES = 2
+RETRY_BACKOFF_SECONDS = 1
 
+
+@functools.lru_cache(maxsize=1)
 def _get_client() -> Client:
-    """Create an Amadeus client from settings."""
+    """Create (and cache) an Amadeus client from settings."""
     hostname = "test" if settings.AMADEUS_ENV == "test" else "production"
     return Client(
         client_id=settings.AMADEUS_CLIENT_ID,
@@ -38,27 +44,50 @@ def search_flights(
     Returns up to *max_results* cheapest offers.
     """
     client = _get_client()
-    try:
-        response = client.shopping.flight_offers_search.get(
-            originLocationCode=origin,
-            destinationLocationCode=destination,
-            departureDate=departure_date,
-            returnDate=return_date,
-            adults=adults,
-            currencyCode=currency,
-            max=max_results,
-        )
-        return _parse_offers(response.data, currency)
-    except ResponseError as err:
-        logger.error("Amadeus API error for %s→%s: %s", origin, destination, err)
-        return []
-    except Exception as err:
-        logger.error("Unexpected error searching flights: %s", err)
-        return []
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.shopping.flight_offers_search.get(
+                originLocationCode=origin,
+                destinationLocationCode=destination,
+                departureDate=departure_date,
+                returnDate=return_date,
+                adults=adults,
+                currencyCode=currency,
+                max=max_results,
+            )
+            carriers = (
+                response.result.get("dictionaries", {}).get("carriers", {})
+                if response.result
+                else {}
+            )
+            return _parse_offers(response.data, currency, carriers)
+        except ResponseError as err:
+            status = getattr(getattr(err, "response", None), "status_code", None)
+            if status and status >= 500 and attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF_SECONDS * (attempt + 1)
+                logger.warning(
+                    "Amadeus 5xx error for %s→%s (attempt %d/%d), retrying in %ds: %s",
+                    origin, destination, attempt + 1, MAX_RETRIES + 1, wait, err,
+                )
+                time.sleep(wait)
+                continue
+            logger.error("Amadeus API error for %s→%s: %s", origin, destination, err)
+            return []
+        except Exception as err:
+            logger.error("Unexpected error searching flights: %s", err)
+            return []
+
+    return []
 
 
-def _parse_offers(data: list[dict[str, Any]], currency: str) -> list[FlightOffer]:
+def _parse_offers(
+    data: list[dict[str, Any]],
+    currency: str,
+    carriers: dict[str, str] | None = None,
+) -> list[FlightOffer]:
     """Parse raw Amadeus JSON into FlightOffer models."""
+    carriers = carriers or {}
     offers: list[FlightOffer] = []
     for item in data:
         try:
@@ -77,11 +106,9 @@ def _parse_offers(data: list[dict[str, Any]], currency: str) -> list[FlightOffer
             ret_first = ret_segments[0] if ret_segments else {}
             ret_last = ret_segments[-1] if ret_segments else {}
 
-            # Carrier codes → airline name (simplified)
+            # Carrier codes → airline name
             carrier = out_first.get("carrierCode", "")
-            # Try to get the airline name from dictionaries
-            carriers_dict = item.get("dictionaries", {}).get("carriers", {})
-            airline_name = carriers_dict.get(carrier, carrier)
+            airline_name = carriers.get(carrier, carrier)
 
             offer = FlightOffer(
                 airline=airline_name,

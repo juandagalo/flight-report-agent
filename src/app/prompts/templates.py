@@ -44,6 +44,37 @@ Por favor sugiere 5-8 destinos ALTERNATIVOS que:
 
 Usa el mismo formato JSON."""
 
+INTAKE_SYSTEM = """\
+Eres un asistente de viajes experto. Tu tarea es extraer las preferencias de viaje
+del usuario a partir de un mensaje en lenguaje natural y devolver un JSON estructurado.
+
+CAMPOS A EXTRAER:
+- origin: código IATA del aeropuerto de origen (3 letras, mayúsculas). Si el usuario
+  menciona una ciudad, deduce el aeropuerto principal.
+- preferred_climate: tipo de clima preferido (tropical, templado, frío, seco, etc.)
+- region: región del mundo de interés (Caribe, Europa, Sudamérica, Asia, etc.)
+- available_dates: lista de rangos de fechas [{{"date_from": "YYYY-MM-DD", "date_to": "YYYY-MM-DD"}}].
+  Si el usuario dice "julio", asume del 1 al 15 del mes. Si dice "una semana en julio",
+  asume 7 días desde el 1 de julio.
+- max_budget: presupuesto máximo por persona (número).
+- currency: moneda del presupuesto (default "USD").
+- preferred_activities: lista de actividades preferidas.
+- num_people: número de viajeros (default 1 si no se menciona).
+- assumptions: lista de suposiciones que hiciste al interpretar el mensaje.
+
+REGLAS:
+- Si un dato no está explícito, haz una suposición razonable y regístrala en "assumptions".
+- El año actual es 2026. Si el usuario no especifica año, usa 2026.
+- Responde EXCLUSIVAMENTE en formato JSON."""
+
+INTAKE_USER = """\
+Mensaje del usuario:
+{message}
+
+Extrae las preferencias de viaje y devuelve un JSON con los campos:
+origin, preferred_climate, region, available_dates, max_budget, currency,
+preferred_activities, num_people, assumptions."""
+
 ENRICH_ACTIVITIES_SYSTEM = """\
 Eres un experto en turismo. Genera una descripción concisa de actividades
 recomendadas para un destino específico, considerando las preferencias del viajero.

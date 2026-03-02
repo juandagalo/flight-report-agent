@@ -1,6 +1,11 @@
 """Application configuration loaded from environment variables."""
 
+import logging
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -23,6 +28,15 @@ class Settings(BaseSettings):
 
     # App
     REPORT_OUTPUT_DIR: str = "reports"
+
+    @model_validator(mode="after")
+    def _warn_empty_credentials(self):
+        if not self.AMADEUS_CLIENT_ID or not self.AMADEUS_CLIENT_SECRET:
+            logger.warning(
+                "Amadeus credentials are empty — flight search will not work. "
+                "Set AMADEUS_CLIENT_ID and AMADEUS_CLIENT_SECRET in .env"
+            )
+        return self
 
 
 # Singleton – import this everywhere

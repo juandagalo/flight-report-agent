@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from src.app.graph.state import TravelState
@@ -11,7 +12,7 @@ from src.app.services.amadeus_client import search_flights
 logger = logging.getLogger(__name__)
 
 
-def search_flights_node(state: TravelState) -> TravelState:
+async def search_flights_node(state: TravelState) -> dict:
     """Query Amadeus for flights to every candidate destination."""
 
     logger.info("→ Starting SEARCH_FLIGHTS node")
@@ -19,18 +20,16 @@ def search_flights_node(state: TravelState) -> TravelState:
     request = state.get("request")
     if request is None:
         return {
-            **state, 
-            "destination_reports": [], 
-            "errors": state.get("errors", []) + ["No request found in state"]
+            "destination_reports": [],
+            "errors": ["No request found in state"],
         }
-    
+
     candidates = state.get("candidate_destinations", [])
 
     if not candidates:
         return {
-            **state,
             "destination_reports": [],
-            "errors": state.get("errors", []) + [
+            "errors": [
                 "No hay destinos candidatos para buscar vuelos."
             ],
         }
@@ -41,7 +40,8 @@ def search_flights_node(state: TravelState) -> TravelState:
 
     for dest in candidates:
         logger.info("Searching flights %s → %s", request.origin, dest.iata_code)
-        flights = search_flights(
+        flights = await asyncio.to_thread(
+            search_flights,
             origin=request.origin,
             destination=dest.iata_code,
             departure_date=date_range.date_from.isoformat(),
@@ -72,6 +72,5 @@ def search_flights_node(state: TravelState) -> TravelState:
             )
 
     return {
-        **state,
         "destination_reports": reports,
     }
