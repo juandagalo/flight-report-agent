@@ -228,24 +228,41 @@ def _sse_event(event: str, data: dict) -> dict:
 async def _stream_travel_pipeline(
     initial_state: dict,
 ) -> AsyncGenerator[dict, None]:
-    """Yield SSE events as the LangGraph pipeline progresses."""
-    try:
-        async for chunk in travel_graph.astream(
-            initial_state, stream_mode="updates"
-        ):
-            for node_name, delta in chunk.items():
-                if node_name in ("__start__", "__end__"):
-                    continue
+    """Yield SSE events as the LangGraph pipeline progresses.
 
-                start_msg, end_msg = _NODE_MESSAGES.get(
-                    node_name, (f"Ejecutando {node_name}...", f"{node_name} completado")
+    Uses ``astream_events`` so that ``node_start`` is emitted *when a node
+    begins* (not after it finishes), giving the client real-time progress.
+    """
+    try:
+        async for event in travel_graph.astream_events(
+            initial_state, version="v2"
+        ):
+            kind = event["event"]
+            name = event.get("name", "")
+            metadata = event.get("metadata", {})
+            langgraph_node = metadata.get("langgraph_node", "")
+
+            # Only handle top-level node events for known pipeline nodes
+            if not langgraph_node or langgraph_node not in _NODE_MESSAGES:
+                continue
+            if name != langgraph_node:
+                continue
+
+            start_msg, end_msg = _NODE_MESSAGES[langgraph_node]
+
+            if kind == "on_chain_start":
+                yield _sse_event(
+                    "node_start", {"node": langgraph_node, "message": start_msg}
                 )
 
-                yield _sse_event("node_start", {"node": node_name, "message": start_msg})
+            elif kind == "on_chain_end":
+                delta = event.get("data", {}).get("output", {})
+                yield _sse_event(
+                    "node_end", {"node": langgraph_node, "message": end_msg}
+                )
 
                 # Validation failure → emit error and stop
-                if node_name == "validate" and not delta.get("validated", False):
-                    yield _sse_event("node_end", {"node": node_name, "message": end_msg})
+                if langgraph_node == "validate" and not delta.get("validated", False):
                     yield _sse_event(
                         "error",
                         {
@@ -256,8 +273,7 @@ async def _stream_travel_pipeline(
                     return
 
                 # Report generated → emit complete or error
-                if node_name == "generate_report":
-                    yield _sse_event("node_end", {"node": node_name, "message": end_msg})
+                if langgraph_node == "generate_report":
                     report_path = delta.get("report_path", "")
                     if report_path and os.path.isfile(report_path):
                         filename = os.path.basename(report_path)
@@ -274,8 +290,6 @@ async def _stream_travel_pipeline(
                             {"message": "No se pudo generar el informe"},
                         )
                     return
-
-                yield _sse_event("node_end", {"node": node_name, "message": end_msg})
 
     except Exception as exc:
         logger.exception("Streaming pipeline failed")

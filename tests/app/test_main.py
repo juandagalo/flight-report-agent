@@ -50,11 +50,22 @@ def _parse_sse_events(text: str) -> list[dict]:
     return events
 
 
-def _make_astream_chunks(*node_deltas: tuple[str, dict]):
-    """Build an async iterator of {node_name: delta} dicts for mocking astream."""
+def _make_astream_events(*node_deltas: tuple[str, dict]):
+    """Build an async iterator of astream_events-style dicts for mocking."""
     async def _gen(*_args, **_kwargs):
         for name, delta in node_deltas:
-            yield {name: delta}
+            yield {
+                "event": "on_chain_start",
+                "name": name,
+                "metadata": {"langgraph_node": name},
+                "data": {},
+            }
+            yield {
+                "event": "on_chain_end",
+                "name": name,
+                "metadata": {"langgraph_node": name},
+                "data": {"output": delta},
+            }
     return _gen
 
 
@@ -102,7 +113,7 @@ class TestChatStreamEndpoint:
         pdf_path = tmp_path / "report.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 test")
 
-        mock_graph.astream = _make_astream_chunks(
+        mock_graph.astream_events = _make_astream_events(
             ("intake", {"request": {}}),
             ("validate", {"validated": True}),
             ("suggest", {"candidate_destinations": []}),
@@ -131,7 +142,7 @@ class TestChatStreamEndpoint:
 
     @patch("src.app.main.travel_graph")
     async def test_validation_failure_emits_error(self, mock_graph, client):
-        mock_graph.astream = _make_astream_chunks(
+        mock_graph.astream_events = _make_astream_events(
             ("intake", {"request": {}}),
             ("validate", {"validated": False, "validation_errors": ["fecha inválida"]}),
         )
@@ -155,7 +166,7 @@ class TestChatStreamEndpoint:
             raise RuntimeError("kaboom")
             yield  # noqa: unreachable — makes this an async generator
 
-        mock_graph.astream = _exploding_stream
+        mock_graph.astream_events = _exploding_stream
 
         async with client as c:
             resp = await c.post(
@@ -174,7 +185,7 @@ class TestChatStreamEndpoint:
         pdf_path = tmp_path / "retry_report.pdf"
         pdf_path.write_bytes(b"%PDF-1.4 test")
 
-        mock_graph.astream = _make_astream_chunks(
+        mock_graph.astream_events = _make_astream_events(
             ("intake", {"request": {}}),
             ("validate", {"validated": True}),
             ("suggest", {"candidate_destinations": []}),
