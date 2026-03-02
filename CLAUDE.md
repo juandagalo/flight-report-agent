@@ -22,7 +22,7 @@ No linter or formatter is configured.
 
 ### Tests
 
-87 tests across 13 files using **pytest** + **pytest-asyncio** (async auto mode). All external I/O (OpenAI, Amadeus, Open-Meteo, PDF) is mocked; pure logic (`validate_input`, `_compute_score`, `_parse_offers`, format helpers) is tested directly.
+96 tests across 13 files using **pytest** + **pytest-asyncio** (async auto mode). All external I/O (OpenAI, Amadeus, Open-Meteo, PDF) is mocked; pure logic (`validate_input`, `_compute_score`, `_parse_offers`, format helpers) is tested directly.
 
 ```
 tests/
@@ -42,12 +42,12 @@ tests/
     test_weather_client.py        # Mock httpx.AsyncClient
     test_pdf_generator.py         # Format helpers (pure) + real PDF to tmp_path
   app/
-    test_main.py                  # FastAPI endpoints via httpx AsyncClient
+    test_main.py                  # FastAPI endpoints + SSE streaming + PDF download
 ```
 
 ## Architecture
 
-This is a **FastAPI + LangGraph** agent that generates comparative PDF travel reports. Users submit travel preferences via natural language (`POST /api/chat`) and receive a downloadable PDF.
+This is a **FastAPI + LangGraph** agent that generates comparative PDF travel reports. Users submit travel preferences via natural language (`POST /api/chat`) and receive a downloadable PDF. An SSE streaming endpoint (`POST /api/chat/stream`) provides real-time node-by-node progress events.
 
 ### LangGraph Pipeline (`src/app/graph/pipeline.py`)
 
@@ -66,7 +66,7 @@ intake → validate → suggest → search_flights →[retry?]→ enrich → gen
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| API | `src/app/main.py` | FastAPI routes (`/health`, `/api/chat`, graph visualization) |
+| API | `src/app/main.py` | FastAPI routes (`/health`, `/api/chat`, `/api/chat/stream`, `/api/reports/{filename}`, graph visualization) |
 | Schemas | `src/app/schemas.py` | Pydantic models: `TravelRequest`, `IntakeResult`, `CandidateDestination`, `FlightOffer`, `WeatherInfo`, `DestinationReport` |
 | Graph nodes | `src/app/graph/nodes/` | One file per pipeline step: `intake`, `validate`, `suggest`, `search_flights`, `enrich`, `report` |
 | Services | `src/app/services/` | External API wrappers: `amadeus_client` (flight search, cached singleton, retry on 5xx), `weather_client` (Open-Meteo, async), `pdf_generator` (ReportLab) |
