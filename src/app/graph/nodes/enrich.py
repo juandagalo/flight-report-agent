@@ -83,18 +83,23 @@ async def enrich_data(state: TravelState) -> dict:
 
     activity_results: list[str] = []
     for report in reports:
+        city = report.destination.city
+        iata_code = report.destination.iata_code
         try:
             # ── RAG context for this specific destination (non-fatal) ──
+            logger.info("  Enriching %s (%s)...", city, iata_code)
             dest_context = ""
             try:
                 dest_results = await query_travel_knowledge(
-                    query_text=f"{report.destination.city} {activities_str}",
+                    query_text=f"{city} {activities_str}",
                     limit=3,
-                    destination_iata=report.destination.iata_code,
+                    destination_iata=iata_code,
                 )
                 dest_context = format_rag_context(
                     dest_results, label="Destination Info"
                 )
+                if dest_results:
+                    logger.info("    Retrieved %d RAG chunks for %s", len(dest_results), city)
             except Exception as exc:
                 logger.warning(
                     "RAG retrieval failed for %s: %s",
@@ -123,6 +128,7 @@ async def enrich_data(state: TravelState) -> dict:
                 {"role": "user", "content": user_msg},
             ])
             activity_results.append(resp.content)
+            logger.info("    Activities generated for %s", city)
         except Exception as exc:
             logger.error(
                 "Activity enrichment failed for %s: %s",
