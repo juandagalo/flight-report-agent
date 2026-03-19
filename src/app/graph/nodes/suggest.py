@@ -62,12 +62,14 @@ async def suggest_destinations(state: TravelState) -> dict:
         rag_context = format_rag_context(
             knowledge_results, label="Destination Knowledge"
         )
+        logger.info("  Retrieved %d travel knowledge chunks", len(knowledge_results))
 
         user_id = state.get("user_id", "")
         interaction_results = await query_interactions(rag_query, user_id, limit=3)
         interaction_context = format_rag_context(
             interaction_results, label="User History"
         )
+        logger.info("  Retrieved %d interaction history results", len(interaction_results))
     except Exception as exc:
         logger.warning("RAG retrieval failed, proceeding without context: %s", exc)
         rag_context = ""
@@ -76,7 +78,7 @@ async def suggest_destinations(state: TravelState) -> dict:
     # ── Build LLM prompt ──────────────────────────────────────────────
 
     llm = get_llm(temperature=0.7)
-    structured_llm = llm.with_structured_output(DestinationList, method="json_mode")
+    structured_llm = llm.with_structured_output(DestinationList)
 
     if retry_count > 0 and state.get("candidate_destinations"):
         # Retry with exclusion of previous destinations
