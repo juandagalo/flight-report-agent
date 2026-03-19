@@ -15,3 +15,13 @@ wheels/
 # Generated reports
 reports/
 *.pdf
+
+# Qdrant embedded database
+data/
+
+# Claude Code / AI tooling
+.claude/
+.atl/
+
+# Local planning docs
+docs/plans/
