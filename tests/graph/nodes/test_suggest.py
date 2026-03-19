@@ -1,4 +1,4 @@
-"""Tests for the suggest node — mocks ChatOpenAI."""
+"""Tests for the suggest node — mocks get_llm."""
 
 from __future__ import annotations
 
@@ -27,12 +27,12 @@ class TestSuggestDestinations:
         assert "errors" in result
         assert any("No request" in e for e in result["errors"])
 
-    @patch("src.app.graph.nodes.suggest.ChatOpenAI")
-    async def test_successful_suggestion(self, mock_chat_cls, sample_travel_request):
+    @patch("src.app.graph.nodes.suggest.get_llm")
+    async def test_successful_suggestion(self, mock_get_llm, sample_travel_request):
         mock_structured = AsyncMock(ainvoke=AsyncMock(return_value=_mock_destination_list()))
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = mock_structured
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         state = {"request": sample_travel_request, "suggest_retry_count": 0}
         result = await suggest_destinations(state)
@@ -41,12 +41,12 @@ class TestSuggestDestinations:
         assert len(result["candidate_destinations"]) == 2
         assert result["candidate_destinations"][0].iata_code == "CUN"
 
-    @patch("src.app.graph.nodes.suggest.ChatOpenAI")
-    async def test_retry_uses_retry_prompt(self, mock_chat_cls, sample_travel_request, sample_candidate):
+    @patch("src.app.graph.nodes.suggest.get_llm")
+    async def test_retry_uses_retry_prompt(self, mock_get_llm, sample_travel_request, sample_candidate):
         mock_structured = AsyncMock(ainvoke=AsyncMock(return_value=_mock_destination_list()))
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = mock_structured
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         state = {
             "request": sample_travel_request,
@@ -61,12 +61,12 @@ class TestSuggestDestinations:
         user_content = call_messages[1]["content"]
         assert "ALTERNATIVOS" in user_content or "anteriores" in user_content
 
-    @patch("src.app.graph.nodes.suggest.ChatOpenAI")
-    async def test_llm_exception_returns_empty_and_error(self, mock_chat_cls, sample_travel_request):
+    @patch("src.app.graph.nodes.suggest.get_llm")
+    async def test_llm_exception_returns_empty_and_error(self, mock_get_llm, sample_travel_request):
         mock_structured = AsyncMock(ainvoke=AsyncMock(side_effect=RuntimeError("timeout")))
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = mock_structured
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         state = {"request": sample_travel_request}
         result = await suggest_destinations(state)

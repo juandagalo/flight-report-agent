@@ -1,4 +1,4 @@
-"""Tests for the intake node — mocks ChatOpenAI."""
+"""Tests for the intake node — mocks get_llm."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ class TestIntakeNode:
         result = await intake_node({})
         assert result == {}
 
-    @patch("src.app.graph.nodes.intake.ChatOpenAI")
-    async def test_successful_extraction(self, mock_chat_cls):
+    @patch("src.app.graph.nodes.intake.get_llm")
+    async def test_successful_extraction(self, mock_get_llm):
         intake_result = IntakeResult(
             preferred_climate="tropical",
             region="Caribe",
@@ -35,7 +35,7 @@ class TestIntakeNode:
         mock_structured = AsyncMock(ainvoke=AsyncMock(return_value=intake_result))
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = mock_structured
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         state = {"user_message": "Quiero ir a la playa en julio desde Bogotá"}
         result = await intake_node(state)
@@ -45,12 +45,12 @@ class TestIntakeNode:
         assert not isinstance(result["request"], IntakeResult)
         assert result["intake_assumptions"] == ["Se asumió USD"]
 
-    @patch("src.app.graph.nodes.intake.ChatOpenAI")
-    async def test_llm_exception_returns_error(self, mock_chat_cls):
+    @patch("src.app.graph.nodes.intake.get_llm")
+    async def test_llm_exception_returns_error(self, mock_get_llm):
         mock_structured = AsyncMock(ainvoke=AsyncMock(side_effect=RuntimeError("LLM down")))
         mock_llm = MagicMock()
         mock_llm.with_structured_output.return_value = mock_structured
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         state = {"user_message": "Quiero viajar"}
         result = await intake_node(state)
