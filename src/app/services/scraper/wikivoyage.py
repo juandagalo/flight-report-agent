@@ -8,6 +8,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 WIKIVOYAGE_API = "https://en.wikivoyage.org/w/api.php"
+WIKIVOYAGE_USER_AGENT = "FlightReportAgent/2.0 (travel recommendation bot; Python/httpx)"
 
 
 async def fetch_page(
@@ -40,7 +41,7 @@ async def fetch_page(
         resp.raise_for_status()
         data = resp.json()
     else:
-        async with httpx.AsyncClient(timeout=30) as _client:
+        async with httpx.AsyncClient(timeout=30, headers={"User-Agent": WIKIVOYAGE_USER_AGENT}) as _client:
             resp = await _client.get(WIKIVOYAGE_API, params=params)
             resp.raise_for_status()
             data = resp.json()

@@ -10,7 +10,7 @@ from src.app.services.embeddings import embed_texts
 from src.app.services.qdrant_client import ensure_all_collections, upsert_points
 from src.app.services.scraper.chunker import chunk_sections
 from src.app.services.scraper.destinations import DESTINATIONS
-from src.app.services.scraper.wikivoyage import fetch_page, parse_sections
+from src.app.services.scraper.wikivoyage import WIKIVOYAGE_USER_AGENT, fetch_page, parse_sections
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ async def ingest_all() -> dict[str, int]:
     ensure_all_collections()
     results = {}
     failed: dict[str, str] = {}
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, headers={"User-Agent": WIKIVOYAGE_USER_AGENT}) as client:
         for dest in DESTINATIONS:
             try:
                 count = await ingest_destination(dest, client=client)
