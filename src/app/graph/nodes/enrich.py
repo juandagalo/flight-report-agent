@@ -6,8 +6,13 @@ import asyncio
 import logging
 
 from src.app.graph.state import TravelState
-from src.app.prompts.templates import ENRICH_ACTIVITIES_SYSTEM, ENRICH_ACTIVITIES_USER
+from src.app.prompts.templates import (
+    ENRICH_ACTIVITIES_SYSTEM,
+    ENRICH_ACTIVITIES_USER,
+    ENRICH_ACTIVITIES_USER_RAG,
+)
 from src.app.services.llm_provider import get_llm
+from src.app.services.rag import format_rag_context, query_travel_knowledge
 from src.app.services.weather_client import get_weather
 
 logger = logging.getLogger(__name__)
@@ -79,12 +84,39 @@ async def enrich_data(state: TravelState) -> dict:
     activity_results: list[str] = []
     for report in reports:
         try:
-            user_msg = ENRICH_ACTIVITIES_USER.format(
-                city=report.destination.city,
-                country=report.destination.country,
-                activities=activities_str,
-                dates=dates_str,
-            )
+            # ── RAG context for this specific destination (non-fatal) ──
+            dest_context = ""
+            try:
+                dest_results = await query_travel_knowledge(
+                    query_text=f"{report.destination.city} {activities_str}",
+                    limit=3,
+                    destination_iata=report.destination.iata_code,
+                )
+                dest_context = format_rag_context(
+                    dest_results, label="Destination Info"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "RAG retrieval failed for %s: %s",
+                    report.destination.city, exc,
+                )
+                dest_context = ""
+
+            if dest_context:
+                user_msg = ENRICH_ACTIVITIES_USER_RAG.format(
+                    city=report.destination.city,
+                    country=report.destination.country,
+                    activities=activities_str,
+                    dates=dates_str,
+                    rag_context=dest_context,
+                )
+            else:
+                user_msg = ENRICH_ACTIVITIES_USER.format(
+                    city=report.destination.city,
+                    country=report.destination.country,
+                    activities=activities_str,
+                    dates=dates_str,
+                )
 
             resp = await llm.ainvoke([
                 {"role": "system", "content": ENRICH_ACTIVITIES_SYSTEM},
