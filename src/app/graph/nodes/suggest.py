@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from src.app.config import settings
 from src.app.graph.state import TravelState
 from src.app.prompts.templates import (
     SUGGEST_DESTINATIONS_RETRY,
@@ -15,6 +13,7 @@ from src.app.prompts.templates import (
     SUGGEST_DESTINATIONS_USER,
 )
 from src.app.schemas import CandidateDestination
+from src.app.services.llm_provider import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ class DestinationList(BaseModel):
 async def suggest_destinations(state: TravelState) -> dict:
     """Call the LLM to suggest 5-8 destinations matching user preferences."""
 
-    logger.info("→ Starting SUGGEST node")
+    logger.info("-> Starting SUGGEST node")
 
     request = state.get("request")
     if request is None:
@@ -44,11 +43,7 @@ async def suggest_destinations(state: TravelState) -> dict:
     )
     activities_str = ", ".join(request.preferred_activities)
 
-    llm = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0.7,
-        api_key=settings.OPENAI_API_KEY,
-    )
+    llm = get_llm(temperature=0.7)
     structured_llm = llm.with_structured_output(DestinationList, method="json_mode")
 
     if retry_count > 0 and state.get("candidate_destinations"):

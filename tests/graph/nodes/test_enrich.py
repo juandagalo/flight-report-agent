@@ -1,4 +1,4 @@
-"""Tests for the enrich node — _compute_score is pure; node mocks weather + LLM."""
+"""Tests for the enrich node — _compute_score is pure; node mocks weather + get_llm."""
 
 from __future__ import annotations
 
@@ -70,10 +70,10 @@ class TestEnrichData:
         result = await enrich_data(state)
         assert result["enriched"] is True
 
-    @patch("src.app.graph.nodes.enrich.ChatOpenAI")
+    @patch("src.app.graph.nodes.enrich.get_llm")
     @patch("src.app.graph.nodes.enrich.get_weather")
     async def test_attaches_weather_and_activities(
-        self, mock_weather, mock_chat_cls, sample_travel_request, sample_candidate, sample_flight_offer
+        self, mock_weather, mock_get_llm, sample_travel_request, sample_candidate, sample_flight_offer
     ):
         weather = WeatherInfo(avg_temp_c=28.0, description="Cálido y tropical, seco")
         mock_weather.return_value = weather
@@ -81,7 +81,7 @@ class TestEnrichData:
         mock_resp = MagicMock(content="• Actividad 1\n• Actividad 2")
         mock_llm = MagicMock()
         mock_llm.ainvoke = AsyncMock(return_value=mock_resp)
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         report = DestinationReport(destination=sample_candidate, flights=[sample_flight_offer])
         state = {
@@ -97,16 +97,16 @@ class TestEnrichData:
         assert "Actividad 1" in enriched[0].activities_description
         assert enriched[0].overall_score > 0
 
-    @patch("src.app.graph.nodes.enrich.ChatOpenAI")
+    @patch("src.app.graph.nodes.enrich.get_llm")
     @patch("src.app.graph.nodes.enrich.get_weather")
     async def test_llm_failure_fallback(
-        self, mock_weather, mock_chat_cls, sample_travel_request, sample_candidate, sample_flight_offer
+        self, mock_weather, mock_get_llm, sample_travel_request, sample_candidate, sample_flight_offer
     ):
         mock_weather.return_value = WeatherInfo()
 
         mock_llm = MagicMock()
         mock_llm.ainvoke = AsyncMock(side_effect=RuntimeError("LLM down"))
-        mock_chat_cls.return_value = mock_llm
+        mock_get_llm.return_value = mock_llm
 
         report = DestinationReport(destination=sample_candidate, flights=[sample_flight_offer])
         state = {
