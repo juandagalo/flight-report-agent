@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     AMADEUS_CLIENT_SECRET: str = ""
     AMADEUS_ENV: str = "test"  # "test" or "production"
 
+    # Qdrant
+    QDRANT_PATH: str = "data/qdrant"
+    QDRANT_COLLECTION_KNOWLEDGE: str = "travel_knowledge"
+    QDRANT_COLLECTION_INTERACTIONS: str = "interactions"
+    EMBEDDING_DIMENSION: int = 1536
+
     # App
     REPORT_OUTPUT_DIR: str = "reports"
 
