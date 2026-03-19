@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 import logging
 from datetime import datetime
@@ -288,11 +289,20 @@ def generate_report(
         # Activities
         if dr.activities_description:
             elements.append(Paragraph("Actividades recomendadas", ss["SubHeader"]))
-            # Split by newlines or bullet points for cleaner rendering
             for line in dr.activities_description.split("\n"):
                 line = line.strip()
+                if not line:
+                    continue
+                # Skip markdown headings (# lines) -- already have SubHeader above
+                if re.match(r"^#{1,4}\s", line):
+                    continue
+                # Convert markdown bold **text** to ReportLab bold <b>text</b>
+                line = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", line)
+                # Strip leading bullet markers (-, *, bullet)
+                line = re.sub(r"^[\-\*\u2022]\s*", "", line)
+                # Indent bullet items with a dash prefix
                 if line:
-                    elements.append(Paragraph(line, ss["BodyText2"]))
+                    elements.append(Paragraph(f"- {line}", ss["BodyText2"]))
             elements.append(Spacer(1, 4 * mm))
 
         elements.append(HRFlowable(
