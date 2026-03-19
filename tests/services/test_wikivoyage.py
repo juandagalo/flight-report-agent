@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from src.app.services.scraper.wikivoyage import (
+    WIKIVOYAGE_USER_AGENT,
     fetch_page,
     parse_sections,
     strip_wikitext,
@@ -102,6 +103,23 @@ class TestFetchPage:
 
         result = await fetch_page("Cancun")
         assert result["wikitext"] == "== See ==\nBeaches and ruins."
+
+    @patch("src.app.services.scraper.wikivoyage.httpx.AsyncClient")
+    async def test_fetch_page_sends_user_agent_header(self, mock_client_cls):
+        """MediaWiki API requires a User-Agent header or returns 403."""
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=_mock_success_response())
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        await fetch_page("Cancun")
+
+        mock_client_cls.assert_called_once()
+        call_kwargs = mock_client_cls.call_args
+        headers = call_kwargs.kwargs.get("headers", {})
+        assert "User-Agent" in headers
+        assert headers["User-Agent"] == WIKIVOYAGE_USER_AGENT
 
 
 class TestParseSections:
