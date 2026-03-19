@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from langchain_openai import ChatOpenAI
-
-from src.app.config import settings
 from src.app.graph.state import TravelState
 from src.app.prompts.templates import ENRICH_ACTIVITIES_SYSTEM, ENRICH_ACTIVITIES_USER
+from src.app.services.llm_provider import get_llm
 from src.app.services.weather_client import get_weather
 
 logger = logging.getLogger(__name__)
@@ -20,7 +18,7 @@ def _compute_score(report, budget: float) -> int:
     climate = report.destination.climate_match
     activity = report.destination.activity_match
 
-    # Price factor: lower price → higher score
+    # Price factor: lower price -> higher score
     if report.flights:
         min_price = min(f.price for f in report.flights)
         price_ratio = max(0, 1 - (min_price / budget)) if budget > 0 else 0
@@ -28,7 +26,7 @@ def _compute_score(report, budget: float) -> int:
     else:
         price_score = 0
 
-    # Stops factor: fewer stops → higher score
+    # Stops factor: fewer stops -> higher score
     if report.flights:
         min_stops = min(f.stops for f in report.flights)
         stops_score = max(0, 100 - min_stops * 30)
@@ -47,7 +45,7 @@ def _compute_score(report, budget: float) -> int:
 async def enrich_data(state: TravelState) -> dict:
     """Add weather info and activity recommendations to each destination."""
 
-    logger.info("→ Starting ENRICH node")
+    logger.info("-> Starting ENRICH node")
 
     request = state.get("request")
 
@@ -76,11 +74,7 @@ async def enrich_data(state: TravelState) -> dict:
 
     # ── Activities (LLM, async) ───────────────────────────────────────
 
-    llm = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0.7,
-        api_key=settings.OPENAI_API_KEY,
-    )
+    llm = get_llm(temperature=0.7)
 
     activity_results: list[str] = []
     for report in reports:
