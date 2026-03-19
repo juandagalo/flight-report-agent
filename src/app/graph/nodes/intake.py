@@ -28,7 +28,7 @@ async def intake_node(state: TravelState) -> dict:
     logger.info("→ Starting INTAKE node")
 
     llm = get_llm(temperature=0.3)
-    structured_llm = llm.with_structured_output(IntakeResult, method="json_mode")
+    structured_llm = llm.with_structured_output(IntakeResult)
 
     user_msg = INTAKE_USER.format(message=user_message)
 
