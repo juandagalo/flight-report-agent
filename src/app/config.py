@@ -17,9 +17,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # LLM Provider
+    LLM_PROVIDER: str = "openai"  # "openai" or "claude"
+
     # OpenAI
     OPENAI_API_KEY: str
     OPENAI_MODEL: str = "gpt-4o"
+
+    # Anthropic
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
 
     # Amadeus
     AMADEUS_CLIENT_ID: str = ""
@@ -35,6 +42,11 @@ class Settings(BaseSettings):
             logger.warning(
                 "Amadeus credentials are empty — flight search will not work. "
                 "Set AMADEUS_CLIENT_ID and AMADEUS_CLIENT_SECRET in .env"
+            )
+        if self.LLM_PROVIDER.lower().strip() == "claude" and not self.ANTHROPIC_API_KEY:
+            logger.warning(
+                "LLM_PROVIDER is 'claude' but ANTHROPIC_API_KEY is empty — "
+                "LLM calls will fail. Set ANTHROPIC_API_KEY in .env"
             )
         return self
 
