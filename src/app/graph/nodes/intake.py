@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from langchain_openai import ChatOpenAI
-
-from src.app.config import settings
 from src.app.graph.state import TravelState
 from src.app.prompts.templates import INTAKE_SYSTEM, INTAKE_USER
 from src.app.schemas import IntakeResult, TravelRequest
+from src.app.services.llm_provider import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +27,7 @@ async def intake_node(state: TravelState) -> dict:
 
     logger.info("→ Starting INTAKE node")
 
-    llm = ChatOpenAI(
-        model=settings.OPENAI_MODEL,
-        temperature=0.3,
-        api_key=settings.OPENAI_API_KEY,
-    )
+    llm = get_llm(temperature=0.3)
     structured_llm = llm.with_structured_output(IntakeResult, method="json_mode")
 
     user_msg = INTAKE_USER.format(message=user_message)

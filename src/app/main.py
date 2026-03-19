@@ -37,7 +37,8 @@ _NODE_MESSAGES: dict[str, tuple[str, str]] = {
     "search_flights":  ("Buscando vuelos en Amadeus...",           "Búsqueda de vuelos completada"),
     "increment_retry": ("Reintentando con nuevos destinos...",     "Reintento preparado"),
     "enrich":          ("Enriqueciendo con clima y actividades...", "Datos enriquecidos"),
-    "generate_report": ("Generando informe PDF...",                "Informe PDF generado"),
+    "generate_report":    ("Generando informe PDF...",                "Informe PDF generado"),
+    "store_interaction":  ("Guardando preferencias del usuario...",   "Preferencias guardadas"),
 }
 
 
@@ -143,10 +144,11 @@ async def get_graph_viewer():
         raise HTTPException(status_code=500, detail=f"Error generating viewer: {exc}")
 
 
-def _build_initial_state(message: str) -> dict:
+def _build_initial_state(message: str, user_id: str = "") -> dict:
     """Build the initial TravelState dict from a user message."""
     return {
         "user_message": message,
+        "user_id": user_id,
         "validated": False,
         "validation_errors": [],
         "candidate_destinations": [],
@@ -205,6 +207,7 @@ async def _create_travel_report(initial_state: dict):
 class ChatMessage(BaseModel):
     """Request body for the chat endpoint."""
     message: str
+    user_id: str = ""
 
 
 @app.post("/api/chat")
@@ -214,7 +217,7 @@ async def chat(body: ChatMessage):
     Example: ``{"message": "Quiero ir a la playa desde Bogotá en julio, presupuesto 1500 USD"}``
     """
     logger.info("New chat request: %s", body.message[:120])
-    return await _create_travel_report(_build_initial_state(body.message))
+    return await _create_travel_report(_build_initial_state(body.message, body.user_id))
 
 
 # ── SSE streaming endpoint ───────────────────────────────────────────
@@ -304,7 +307,7 @@ async def chat_stream(body: ChatMessage):
     then a final ``complete`` event with the report download URL.
     """
     logger.info("New streaming request: %s", body.message[:120])
-    initial_state = _build_initial_state(body.message)
+    initial_state = _build_initial_state(body.message, body.user_id)
     return EventSourceResponse(_stream_travel_pipeline(initial_state))
 
 

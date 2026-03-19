@@ -43,5 +43,8 @@ class TravelState(TypedDict, total=False):
     # Retry tracking
     suggest_retry_count: int
 
+    # User identification (for RAG personalization)
+    user_id: str
+
     # General errors (auto-appended via reducer)
     errors: Annotated[list[str], operator.add]

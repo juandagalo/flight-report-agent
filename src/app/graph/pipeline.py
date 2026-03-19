@@ -10,6 +10,7 @@ from src.app.graph.nodes.enrich import enrich_data
 from src.app.graph.nodes.intake import intake_node
 from src.app.graph.nodes.report import generate_report_node
 from src.app.graph.nodes.search_flights import search_flights_node
+from src.app.graph.nodes.store_interaction import store_interaction_node
 from src.app.graph.nodes.suggest import suggest_destinations
 from src.app.graph.nodes.validate import validate_input
 from src.app.graph.state import TravelState
@@ -64,6 +65,7 @@ def build_graph():
     graph.add_node("increment_retry", _increment_retry)
     graph.add_node("enrich", enrich_data)
     graph.add_node("generate_report", generate_report_node)
+    graph.add_node("store_interaction", store_interaction_node)
 
     # ── Set entry point ──────────────────────────────────────────────
     graph.set_entry_point("intake")
@@ -93,7 +95,8 @@ def build_graph():
 
     graph.add_edge("increment_retry", "suggest")
     graph.add_edge("enrich", "generate_report")
-    graph.add_edge("generate_report", END)
+    graph.add_edge("generate_report", "store_interaction")
+    graph.add_edge("store_interaction", END)
 
     return graph.compile()
 
